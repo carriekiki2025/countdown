@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>考试倒计时系统</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f0f0f0;
+            margin: 0;
+            min-height: 100vh;
+        }
+
+        .container {
+            text-align: center;
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+            margin: 30px 0;
+            max-width: 600px;
+            width: 90%;
+        }
+
+        h1 {
+            color: #2c3e50;
+            margin: 20px 0;
+        }
+
+        .input-group {
+            margin: 15px 0;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        input, button {
+            padding: 10px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        button {
+            background-color: #3498db;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s;
+            border: none;
+        }
+
+        button:hover {
+            background-color: #2980b9;
+            transform: translateY(-1px);
+        }
+
+        #timeDisplay {
+            font-size: 1.4em;
+            color: #34495e;
+            margin-bottom: 15px;
+            font-weight: 500;
+        }
+
+        #countdown {
+            font-size: 2.8em;
+            color: #e74c3c;
+            margin: 25px 0;
+            line-height: 1.6;
+        }
+
+        #subjectDisplay {
+            color: #27ae60;
+            font-size: 1.3em;
+        }
+
+        .audio-controls {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        input[type="number"] {
+            width: 80px;
+        }
+
+        input[type="datetime-local"] {
+            width: 220px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="timeDisplay"></div>
+        <h1>距离<span id="subjectDisplay"> </span>考试结束还有</h1>
+        <div id="countdown">
+            <div id="remainingTime">00:00:00</div>
+        </div>
+
+        <div class="input-group">
+            <input type="text" id="subject" placeholder="输入考试科目" style="width: 280px;">
+        </div>
+
+        <div class="input-group">
+            <input type="datetime-local" id="endTime">
+            <button onclick="startCountdown()">设置结束时间</button>
+        </div>
+
+        <div class="input-group">
+            <input type="number" id="hours" placeholder="小时" min="0">
+            <input type="number" id="minutes" placeholder="分钟" min="0" max="59">
+            <input type="number" id="seconds" placeholder="秒" min="0" max="59">
+            <button onclick="startManualCountdown()">手动开始</button>
+        </div>
+
+        <div class="audio-controls">
+            <button onclick="toggleSound()" id="soundBtn">🔊 关闭提示音</button>
+        </div>
+    </div>
+
+    <script>
+        let timer = null;
+        let isSoundEnabled = true;
+        let audioContext = null;
+        let oscillator = null;
+        let gainNode = null;
+
+        // 实时时间更新
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('timeDisplay').textContent = 
+                `当前时间：${now.toLocaleTimeString('zh-CN', { hour12: false })}`;
+        }
+        updateClock();
+        setInterval(updateClock, 1000);
+
+        // 科目实时更新
+        document.getElementById('subject').addEventListener('input', () => {
+            document.getElementById('subjectDisplay').textContent = 
+                document.getElementById('subject').value || "考试";
+        });
+
+        // 初始化音频
+        function initAudio() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                gainNode = audioContext.createGain();
+                gainNode.connect(audioContext.destination);
+                gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+            }
+        }
+
+        // 播放提示音
+        function playBeep() {
+            initAudio();
+            
+            if (oscillator) {
+                oscillator.stop();
+                oscillator.disconnect();
+            }
+
+            oscillator = audioContext.createOscillator();
+            oscillator.connect(gainNode);
+            oscillator.type = 'square';
+            oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+
+            const startTime = audioContext.currentTime;
+            const beepDuration = 0.1;  // 0.1秒的提示音
+            const interval = 0.3;      // 0.3秒间隔
+
+            // 安排三次滴滴声
+            [0, 1, 2].forEach(i => {
+                gainNode.gain.setValueAtTime(0.3, startTime + i * interval);
+                gainNode.gain.setValueAtTime(0, startTime + i * interval + beepDuration);
+            });
+
+            // 循环播放
+            oscillator.start();
+            oscillator.stop(startTime + 3 * interval + 1); // 1秒后重新播放
+            setTimeout(() => {
+                if (isSoundEnabled) playBeep();
+            }, 1000);
+        }
+
+        // 停止提示音
+        function stopBeep() {
+            if (oscillator) {
+                oscillator.stop();
+                oscillator = null;
+            }
+            if (gainNode) {
+                gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+            }
+        }
+
+        // 倒计时结束处理
+        function handleCountdownEnd() {
+            clearInterval(timer);
+            document.getElementById('countdown').innerHTML = 
+                `<div style="color:#d35400; font-size:1.2em">考试已结束！</div>`;
+            if(isSoundEnabled) playBeep();
+        }
+
+        // 声音控制
+        function toggleSound() {
+            isSoundEnabled = !isSoundEnabled;
+            const btn = document.getElementById('soundBtn');
+            btn.innerHTML = isSoundEnabled ? "🔊 关闭提示音" : "🔇 开启提示音";
+            if(!isSoundEnabled) stopBeep();
+        }
+
+        // 自动倒计时
+        function startCountdown() {
+            initAudio(); // 用户点击时初始化音频
+            clearInterval(timer);
+            const endTime = new Date(document.getElementById('endTime').value).getTime();
+            
+            timer = setInterval(() => {
+                const now = new Date().getTime();
+                const distance = endTime - now;
+
+                if (distance < 0) {
+                    handleCountdownEnd();
+                    return;
+                }
+                updateDisplay(distance);
+            }, 1000);
+        }
+
+        // 手动倒计时
+        function startManualCountdown() {
+            initAudio(); // 用户点击时初始化音频
+            clearInterval(timer);
+            let totalSeconds = 
+                (parseInt(document.getElementById('hours').value || 0) * 3600) +
+                (parseInt(document.getElementById('minutes').value || 0) * 60) +
+                (parseInt(document.getElementById('seconds').value || 0));
+
+            timer = setInterval(() => {
+                if (totalSeconds <= 0) {
+                    handleCountdownEnd();
+                    return;
+                }
+                updateDisplay(totalSeconds * 1000);
+                totalSeconds--;
+            }, 1000);
+        }
+
+        // 更新显示时间
+        function updateDisplay(milliseconds) {
+            const days = Math.floor(milliseconds / (1000 * 60 * 60 * 24));
+            const hours = Math.floor((milliseconds % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+            const minutes = Math.floor((milliseconds % (1000 * 60 * 60)) / (1000 * 60));
+            const seconds = Math.floor((milliseconds % (1000 * 60)) / 1000);
+
+            let timeString = "";
+            if (days > 0) timeString += `${days}天 `;
+            timeString += `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            
+            document.getElementById('remainingTime').textContent = timeString;
+        }
+    </script>
+</body>
+</html>
